@@ -116,8 +116,9 @@ impl World {
             // Remove all components from storage
             let component_types = entity.component_types().clone();
             for i in 0..component_types.len() {
-                let ctype = component_types.get(i).unwrap();
-                self.storage.remove_component(entity_id, ctype.clone());
+                if let Some(ctype) = component_types.get(i) {
+                    self.storage.remove_component(entity_id, ctype.clone());
+                }
             }
         }
         self.entities.despawn(entity_id)
@@ -156,9 +157,10 @@ impl World {
     /// Get a resource by type
     pub fn get_resource(&self, resource_type: &Symbol) -> Option<Resource> {
         for i in 0..self.resources.len() {
-            let res = self.resources.get(i).unwrap();
-            if res.resource_type() == resource_type {
-                return Some(res.clone());
+            if let Some(res) = self.resources.get(i) {
+                if res.resource_type() == resource_type {
+                    return Some(res.clone());
+                }
             }
         }
         None
@@ -173,13 +175,15 @@ impl World {
     /// Remove a resource from the world
     pub fn remove_resource(&mut self, resource_type: &Symbol) -> Option<Resource> {
         let mut found = None;
-        let mut new_resources = Vec::new(&soroban_sdk::Env::default());
+        let env = self.resources.env();
+        let mut new_resources = Vec::new(env);
         for i in 0..self.resources.len() {
-            let res = self.resources.get(i).unwrap();
-            if res.resource_type() == resource_type {
-                found = Some(res.clone());
-            } else {
-                new_resources.push_back(res.clone());
+            if let Some(res) = self.resources.get(i) {
+                if res.resource_type() == resource_type {
+                    found = Some(res.clone());
+                } else {
+                    new_resources.push_back(res.clone());
+                }
             }
         }
         if found.is_some() {
@@ -195,12 +199,13 @@ impl World {
 
     /// Get all events of a specific type
     pub fn get_events(&self, event_type: &Symbol) -> Vec<Event> {
-        let env = soroban_sdk::Env::default();
-        let mut filtered = Vec::new(&env);
+        let env = self.events.env();
+        let mut filtered = Vec::new(env);
         for i in 0..self.events.len() {
-            let event = self.events.get(i).unwrap();
-            if event.event_type() == event_type {
-                filtered.push_back(event.clone());
+            if let Some(event) = self.events.get(i) {
+                if event.event_type() == event_type {
+                    filtered.push_back(event.clone());
+                }
             }
         }
         filtered

@@ -76,14 +76,16 @@ impl Entity {
     /// Remove a component type from this entity
     pub fn remove_component_type(&mut self, component_type: &Symbol) -> bool {
         let mut found = false;
-        let mut new_components = Vec::new(&soroban_sdk::Env::default());
+        let env = self.component_types.env();
+        let mut new_components = Vec::new(env);
 
         for i in 0..self.component_types.len() {
-            let ctype = self.component_types.get(i).unwrap();
-            if ctype == *component_type {
-                found = true;
-            } else {
-                new_components.push_back(ctype.clone());
+            if let Some(ctype) = self.component_types.get(i) {
+                if ctype == *component_type {
+                    found = true;
+                } else {
+                    new_components.push_back(ctype.clone());
+                }
             }
         }
 
@@ -96,9 +98,10 @@ impl Entity {
     /// Check if this entity has a specific component type
     pub fn has_component(&self, component_type: &Symbol) -> bool {
         for i in 0..self.component_types.len() {
-            let ctype = self.component_types.get(i).unwrap();
-            if ctype == *component_type {
-                return true;
+            if let Some(ctype) = self.component_types.get(i) {
+                if ctype == *component_type {
+                    return true;
+                }
             }
         }
         false
@@ -111,7 +114,7 @@ impl Entity {
 
     /// Get the number of components
     pub fn component_count(&self) -> usize {
-        self.component_types.len().try_into().unwrap()
+        self.component_types.len() as usize
     }
 
     /// Check if the entity has no components
@@ -166,8 +169,9 @@ impl EntityManager {
     /// Spawn a new entity
     pub fn spawn(&mut self) -> EntityId {
         let id = if self.free_list.len() > 0 {
-            let freed_id = self.free_list.get(self.free_list.len() - 1).unwrap();
-            self.free_list.remove(self.free_list.len() - 1);
+            let last_idx = self.free_list.len() - 1;
+            let freed_id = self.free_list.get(last_idx).unwrap_or(0);
+            self.free_list.remove(last_idx);
             freed_id
         } else {
             let id = self.next_id;
@@ -184,11 +188,12 @@ impl EntityManager {
     /// Despawn an entity
     pub fn despawn(&mut self, entity_id: EntityId) -> bool {
         for i in 0..self.entities.len() {
-            let entity = self.entities.get(i).unwrap();
-            if entity.id() == entity_id {
-                self.entities.remove(i);
-                self.free_list.push_back(entity_id.id());
-                return true;
+            if let Some(entity) = self.entities.get(i) {
+                if entity.id() == entity_id {
+                    self.entities.remove(i);
+                    self.free_list.push_back(entity_id.id());
+                    return true;
+                }
             }
         }
         false
@@ -197,9 +202,10 @@ impl EntityManager {
     /// Get an entity by ID
     pub fn get_entity(&self, entity_id: EntityId) -> Option<Entity> {
         for i in 0..self.entities.len() {
-            let entity = self.entities.get(i).unwrap();
-            if entity.id() == entity_id {
-                return Some(entity.clone());
+            if let Some(entity) = self.entities.get(i) {
+                if entity.id() == entity_id {
+                    return Some(entity.clone());
+                }
             }
         }
         None
@@ -214,15 +220,16 @@ impl EntityManager {
 
     /// Get the total number of entities
     pub fn entity_count(&self) -> usize {
-        self.entities.len().try_into().unwrap()
+        self.entities.len() as usize
     }
 
     /// Check if an entity exists
     pub fn exists(&self, entity_id: EntityId) -> bool {
         for i in 0..self.entities.len() {
-            let entity = self.entities.get(i).unwrap();
-            if entity.id() == entity_id {
-                return true;
+            if let Some(entity) = self.entities.get(i) {
+                if entity.id() == entity_id {
+                    return true;
+                }
             }
         }
         false
@@ -283,7 +290,7 @@ impl<'a> Iterator for EntityIterator<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.entities.len() {
-            let entity = self.entities.get(self.index).unwrap();
+            let entity = self.entities.get(self.index)?;
             self.index += 1;
             Some(entity.clone())
         } else {
@@ -303,7 +310,7 @@ impl<'a> Iterator for EntityIteratorMut<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.entities.len() {
-            let entity = self.entities.get(self.index).unwrap();
+            let entity = self.entities.get(self.index)?;
             self.index += 1;
             Some(entity.clone())
         } else {

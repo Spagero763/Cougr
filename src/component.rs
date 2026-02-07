@@ -181,37 +181,7 @@ impl Position {
         Self { x, y }
     }
 }
-impl ComponentTrait for Position {
-    fn component_type() -> Symbol {
-        symbol_short!("position")
-    }
-    fn serialize(&self, env: &Env) -> Bytes {
-        let mut bytes = Bytes::new(env);
-        let x_bytes = Bytes::from_array(env, &self.x.to_be_bytes());
-        let y_bytes = Bytes::from_array(env, &self.y.to_be_bytes());
-        bytes.append(&x_bytes);
-        bytes.append(&y_bytes);
-        bytes
-    }
-    fn deserialize(env: &Env, data: &Bytes) -> Option<Self> {
-        if data.len() != 8 {
-            return None;
-        }
-        let x = i32::from_be_bytes([
-            data.get(0).unwrap(),
-            data.get(1).unwrap(),
-            data.get(2).unwrap(),
-            data.get(3).unwrap(),
-        ]);
-        let y = i32::from_be_bytes([
-            data.get(4).unwrap(),
-            data.get(5).unwrap(),
-            data.get(6).unwrap(),
-            data.get(7).unwrap(),
-        ]);
-        Some(Self { x, y })
-    }
-}
+impl_component!(Position, "position", Table, { x: i32, y: i32 });
 
 #[contracttype]
 #[derive(Clone)]
@@ -224,37 +194,7 @@ impl Velocity {
         Self { x, y }
     }
 }
-impl ComponentTrait for Velocity {
-    fn component_type() -> Symbol {
-        symbol_short!("velocity")
-    }
-    fn serialize(&self, env: &Env) -> Bytes {
-        let mut bytes = Bytes::new(env);
-        let x_bytes = Bytes::from_array(env, &self.x.to_be_bytes());
-        let y_bytes = Bytes::from_array(env, &self.y.to_be_bytes());
-        bytes.append(&x_bytes);
-        bytes.append(&y_bytes);
-        bytes
-    }
-    fn deserialize(env: &Env, data: &Bytes) -> Option<Self> {
-        if data.len() != 8 {
-            return None;
-        }
-        let x = i32::from_be_bytes([
-            data.get(0).unwrap(),
-            data.get(1).unwrap(),
-            data.get(2).unwrap(),
-            data.get(3).unwrap(),
-        ]);
-        let y = i32::from_be_bytes([
-            data.get(4).unwrap(),
-            data.get(5).unwrap(),
-            data.get(6).unwrap(),
-            data.get(7).unwrap(),
-        ]);
-        Some(Self { x, y })
-    }
-}
+impl_component!(Velocity, "velocity", Table, { x: i32, y: i32 });
 
 #[cfg(test)]
 mod tests {

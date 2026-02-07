@@ -25,13 +25,12 @@
 //! - A consistent architecture for game logic
 
 mod components;
-mod simple_world;
 mod systems;
 
 use components::{
     BattleAction, BattleResult, BattleState, Creature, Direction, Position, MAP_HEIGHT, MAP_WIDTH,
 };
-use simple_world::SimpleWorld;
+use cougr_core::SimpleWorld;
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Env};
 
 // ============================================================================

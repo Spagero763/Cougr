@@ -32,19 +32,23 @@ impl Storage {
     /// Remove a component from storage
     pub fn remove_component(&mut self, entity_id: EntityId, component_type: Symbol) -> bool {
         let mut found = false;
-        let mut new_entity_ids = Vec::new(&soroban_sdk::Env::default());
-        let mut new_component_types = Vec::new(&soroban_sdk::Env::default());
-        let mut new_component_data = Vec::new(&soroban_sdk::Env::default());
+        let env = self.entity_ids.env();
+        let mut new_entity_ids = Vec::new(env);
+        let mut new_component_types = Vec::new(env);
+        let mut new_component_data = Vec::new(env);
         for i in 0..self.entity_ids.len() {
-            let eid = self.entity_ids.get(i).unwrap();
-            let ctype = self.component_types.get(i).unwrap();
-            let cdata = self.component_data.get(i).unwrap();
-            if eid == entity_id.id() && ctype == component_type {
-                found = true;
-            } else {
-                new_entity_ids.push_back(eid);
-                new_component_types.push_back(ctype.clone());
-                new_component_data.push_back(cdata.clone());
+            if let (Some(eid), Some(ctype), Some(cdata)) = (
+                self.entity_ids.get(i),
+                self.component_types.get(i),
+                self.component_data.get(i),
+            ) {
+                if eid == entity_id.id() && ctype == component_type {
+                    found = true;
+                } else {
+                    new_entity_ids.push_back(eid);
+                    new_component_types.push_back(ctype.clone());
+                    new_component_data.push_back(cdata.clone());
+                }
             }
         }
         if found {
@@ -58,11 +62,14 @@ impl Storage {
     /// Get a component from storage
     pub fn get_component(&self, entity_id: EntityId, component_type: Symbol) -> Option<Component> {
         for i in 0..self.entity_ids.len() {
-            let eid = self.entity_ids.get(i).unwrap();
-            let ctype = self.component_types.get(i).unwrap();
-            let cdata = self.component_data.get(i).unwrap();
-            if eid == entity_id.id() && ctype == component_type {
-                return Some(Component::new(ctype.clone(), cdata.clone()));
+            if let (Some(eid), Some(ctype), Some(cdata)) = (
+                self.entity_ids.get(i),
+                self.component_types.get(i),
+                self.component_data.get(i),
+            ) {
+                if eid == entity_id.id() && ctype == component_type {
+                    return Some(Component::new(ctype.clone(), cdata.clone()));
+                }
             }
         }
         None
@@ -71,10 +78,11 @@ impl Storage {
     /// Check if a component exists in storage
     pub fn has_component(&self, entity_id: EntityId, component_type: Symbol) -> bool {
         for i in 0..self.entity_ids.len() {
-            let eid = self.entity_ids.get(i).unwrap();
-            let ctype = self.component_types.get(i).unwrap();
-            if eid == entity_id.id() && ctype == component_type {
-                return true;
+            if let (Some(eid), Some(ctype)) = (self.entity_ids.get(i), self.component_types.get(i))
+            {
+                if eid == entity_id.id() && ctype == component_type {
+                    return true;
+                }
             }
         }
         false
@@ -82,14 +90,17 @@ impl Storage {
 
     /// Get all components for an entity
     pub fn get_entity_components(&self, entity_id: EntityId) -> Vec<Component> {
-        let env = soroban_sdk::Env::default();
-        let mut components = Vec::new(&env);
+        let env = self.entity_ids.env();
+        let mut components = Vec::new(env);
         for i in 0..self.entity_ids.len() {
-            let eid = self.entity_ids.get(i).unwrap();
-            let ctype = self.component_types.get(i).unwrap();
-            let cdata = self.component_data.get(i).unwrap();
-            if eid == entity_id.id() {
-                components.push_back(Component::new(ctype.clone(), cdata.clone()));
+            if let (Some(eid), Some(ctype), Some(cdata)) = (
+                self.entity_ids.get(i),
+                self.component_types.get(i),
+                self.component_data.get(i),
+            ) {
+                if eid == entity_id.id() {
+                    components.push_back(Component::new(ctype.clone(), cdata.clone()));
+                }
             }
         }
         components
@@ -103,7 +114,7 @@ impl Storage {
     }
 
     pub fn len(&self) -> usize {
-        self.entity_ids.len().try_into().unwrap()
+        self.entity_ids.len() as usize
     }
 
     pub fn is_empty(&self) -> bool {
