@@ -24,6 +24,10 @@ wee_alloc = "0.4.5"
 [dev-dependencies]
 soroban-sdk = { version = "25.1.0", features = ["testutils"] }
 
+[[bench]]
+name = "ecs_bench"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1

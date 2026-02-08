@@ -25,9 +25,11 @@
 pub mod batch;
 pub mod classic;
 pub mod contract;
+pub mod degradation;
 pub mod error;
 pub mod multi_device;
 pub mod recovery;
+pub mod session_builder;
 pub mod storage;
 #[cfg(any(test, feature = "testutils"))]
 pub mod testing;
@@ -38,9 +40,11 @@ pub mod types;
 pub use batch::BatchBuilder;
 pub use classic::ClassicAccount;
 pub use contract::ContractAccount;
+pub use degradation::{authorize_with_fallback, batch_or_sequential, require_capability};
 pub use error::AccountError;
 pub use multi_device::{DeviceKey, DevicePolicy, MultiDeviceProvider};
 pub use recovery::{Guardian, RecoveryConfig, RecoveryProvider, RecoveryRequest};
+pub use session_builder::SessionBuilder;
 pub use storage::SessionStorage;
 #[cfg(any(test, feature = "testutils"))]
 pub use testing::MockAccount;
