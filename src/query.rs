@@ -1,7 +1,8 @@
 use crate::entity::EntityId;
+use crate::simple_world::{self, EntityId as SimpleEntityId};
 use crate::world::World;
 use alloc::boxed::Box;
-use soroban_sdk::{Symbol, Vec};
+use soroban_sdk::{Env, Symbol, Vec};
 
 /// A query for entities with specific components
 #[derive(Debug, Clone)]
@@ -72,12 +73,15 @@ impl Default for Query {
     }
 }
 
-/// Query state for tracking query results
+/// Query state for tracking query results with cache invalidation.
+///
+/// Stores the last query results and the world version at which they were computed.
+/// When the world version matches, cached results are returned without re-scanning.
 #[derive(Debug, Clone)]
 pub struct QueryState {
     query: Query,
     last_results: Vec<EntityId>,
-    last_execution_time: u64,
+    last_world_version: u64,
 }
 
 impl QueryState {
@@ -87,14 +91,13 @@ impl QueryState {
         Self {
             query,
             last_results: Vec::new(&env),
-            last_execution_time: 0,
+            last_world_version: 0,
         }
     }
 
     /// Execute the query and update state
     pub fn execute(&mut self, world: &World) -> &Vec<EntityId> {
         self.last_results = self.query.execute(world);
-        self.last_execution_time = 0; // In a real implementation, this would be the current time
         &self.last_results
     }
 
@@ -113,16 +116,66 @@ impl QueryState {
         self.last_results.len().try_into().unwrap()
     }
 
-    /// Get the last execution time
-    pub fn last_execution_time(&self) -> u64 {
-        self.last_execution_time
+    /// Get the world version when the cache was last populated
+    pub fn cached_version(&self) -> u64 {
+        self.last_world_version
     }
 
-    /// Check if the query needs to be re-executed
-    pub fn needs_update(&self, current_time: u64) -> bool {
-        // In a real implementation, you might check if the world has changed
-        // For now, we'll just return true to always re-execute
-        true
+    /// Check if the query needs to be re-executed based on world version.
+    pub fn needs_update(&self, world_version: u64) -> bool {
+        self.last_world_version != world_version
+    }
+}
+
+/// Cached query for `SimpleWorld` that avoids re-scanning when the world hasn't changed.
+///
+/// Tracks a single component type and caches matching entity IDs.
+/// Automatically invalidates when the world version changes.
+///
+/// # Example
+/// ```ignore
+/// let mut cache = SimpleQueryCache::new(symbol_short!("position"));
+/// let entities = cache.execute(&world, &env);
+/// // Second call returns cached results if world hasn't changed
+/// let entities2 = cache.execute(&world, &env);
+/// ```
+pub struct SimpleQueryCache {
+    component_type: Symbol,
+    cached_results: Vec<SimpleEntityId>,
+    cached_version: u64,
+}
+
+impl SimpleQueryCache {
+    /// Create a new query cache for a specific component type
+    pub fn new(component_type: Symbol, env: &Env) -> Self {
+        Self {
+            component_type,
+            cached_results: Vec::new(env),
+            cached_version: 0,
+        }
+    }
+
+    /// Execute the query, returning cached results if the world hasn't changed.
+    pub fn execute(
+        &mut self,
+        world: &crate::simple_world::SimpleWorld,
+        env: &Env,
+    ) -> &Vec<SimpleEntityId> {
+        if self.cached_version != world.version() {
+            self.cached_results = world.get_entities_with_component(&self.component_type, env);
+            self.cached_version = world.version();
+        }
+        &self.cached_results
+    }
+
+    /// Force invalidation of the cache.
+    pub fn invalidate(&mut self) {
+        self.cached_version = 0;
+    }
+
+    /// Check if the cache is up-to-date with the given world version.
+    pub fn is_valid(&self, world_version: u64) -> bool {
+        self.cached_version == world_version
     }
 }
 
@@ -356,6 +409,60 @@ mod tests {
         let results = query_state.execute(&world);
         assert_eq!(results.len(), 0);
         assert!(query_state.is_empty());
+    }
+
+    #[test]
+    fn test_query_state_needs_update() {
+        let query = Query::new().with_component(symbol_short!("position"));
+        let query_state = QueryState::new(query);
+
+        // Fresh state should need update (version 0 != any real version)
+        assert!(query_state.needs_update(1));
+        // Same version should not need update
+        assert!(!query_state.needs_update(0));
+    }
+
+    #[test]
+    fn test_simple_query_cache() {
+        let env = Env::default();
+        let mut world = crate::simple_world::SimpleWorld::new(&env);
+
+        let e1 = world.spawn_entity();
+        let data = soroban_sdk::Bytes::from_array(&env, &[1, 2, 3, 4]);
+        world.add_component(e1, symbol_short!("pos"), data);
+
+        let mut cache = SimpleQueryCache::new(symbol_short!("pos"), &env);
+
+        // First execution populates cache
+        let results = cache.execute(&world, &env);
+        assert_eq!(results.len(), 1);
+        assert!(cache.is_valid(world.version()));
+
+        // Second execution uses cache (world unchanged)
+        let results2 = cache.execute(&world, &env);
+        assert_eq!(results2.len(), 1);
+
+        // Mutating world invalidates cache
+        let e2 = world.spawn_entity();
+        let data2 = soroban_sdk::Bytes::from_array(&env, &[5, 6, 7, 8]);
+        world.add_component(e2, symbol_short!("pos"), data2);
+        assert!(!cache.is_valid(world.version()));
+
+        // Re-execution after mutation returns updated results
+        let results3 = cache.execute(&world, &env);
+        assert_eq!(results3.len(), 2);
+        assert!(cache.is_valid(world.version()));
+    }
+
+    #[test]
+    fn test_simple_query_cache_invalidate() {
+        let env = Env::default();
+        let mut cache = SimpleQueryCache::new(symbol_short!("test"), &env);
+        cache.cached_version = 5;
+        assert!(cache.is_valid(5));
+
+        cache.invalidate();
+        assert!(!cache.is_valid(5));
     }
 
     #[test]
