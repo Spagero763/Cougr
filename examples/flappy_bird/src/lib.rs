@@ -1,11 +1,10 @@
 #![no_std]
 
 mod components;
-mod simple_world;
 mod systems;
 
 use components::{BirdState, ComponentTrait, PipeConfig, PipeMarker};
-use simple_world::SimpleWorld;
+use cougr_core::SimpleWorld;
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Env, Vec};
 use systems::{Position, Velocity};
 

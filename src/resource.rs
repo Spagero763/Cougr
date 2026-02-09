@@ -57,44 +57,7 @@ impl GameState {
         self.is_game_over = true;
     }
 }
-impl ResourceTrait for GameState {
-    fn resource_type() -> Symbol {
-        symbol_short!("gamestate")
-    }
-    fn serialize(&self, env: &Env) -> Bytes {
-        let mut bytes = Bytes::new(env);
-        let score_bytes = Bytes::from_array(env, &self.score.to_be_bytes());
-        let level_bytes = Bytes::from_array(env, &self.level.to_be_bytes());
-        let game_over_bytes = Bytes::from_array(env, &[self.is_game_over as u8]);
-        bytes.append(&score_bytes);
-        bytes.append(&level_bytes);
-        bytes.append(&game_over_bytes);
-        bytes
-    }
-    fn deserialize(env: &Env, data: &Bytes) -> Option<Self> {
-        if data.len() != 9 {
-            return None;
-        }
-        let score = i32::from_be_bytes([
-            data.get(0).unwrap(),
-            data.get(1).unwrap(),
-            data.get(2).unwrap(),
-            data.get(3).unwrap(),
-        ]);
-        let level = i32::from_be_bytes([
-            data.get(4).unwrap(),
-            data.get(5).unwrap(),
-            data.get(6).unwrap(),
-            data.get(7).unwrap(),
-        ]);
-        let is_game_over = data.get(8).unwrap() != 0;
-        Some(Self {
-            score,
-            level,
-            is_game_over,
-        })
-    }
-}
+impl_resource!(GameState, "gamestate", { score: i32, level: i32, is_game_over: bool });
 impl Default for GameState {
     fn default() -> Self {
         Self::new()

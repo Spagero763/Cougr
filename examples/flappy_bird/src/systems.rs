@@ -1,5 +1,5 @@
 use crate::components::{BirdState, ComponentTrait, PipeConfig, PipeMarker};
-use crate::simple_world::SimpleWorld;
+use cougr_core::SimpleWorld;
 use soroban_sdk::{symbol_short, Bytes, Env, Symbol};
 
 // Define our own Position and Velocity types that match cougr-core's but with ComponentTrait

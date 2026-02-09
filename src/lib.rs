@@ -9,25 +9,33 @@ use soroban_sdk::{symbol_short, Bytes, Symbol, Vec};
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+// Macros must be declared before modules that use them
+#[macro_use]
+pub mod macros;
+
 // Core ECS types adapted for Soroban
 pub mod component;
 pub mod components;
 pub mod entity;
+pub mod error;
 pub mod event;
 pub mod query;
 pub mod resource;
+pub mod simple_world;
 pub mod storage;
 pub mod system;
 pub mod systems;
 pub mod world;
 
 // Re-export core types
-pub use component::{Component, ComponentId, ComponentStorage};
+pub use component::{Component, ComponentId, ComponentStorage, ComponentTrait};
 pub use components::Position;
 pub use entity::{Entity, EntityId};
+pub use error::{CougrError, CougrResult};
 pub use event::{Event, EventReader, EventWriter};
 pub use query::{Query, QueryState};
 pub use resource::Resource;
+pub use simple_world::SimpleWorld;
 pub use storage::{SparseStorage, Storage, TableStorage};
 pub use system::{IntoSystem, System, SystemParam};
 pub use systems::MovementSystem;
