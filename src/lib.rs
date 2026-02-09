@@ -14,18 +14,22 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 pub mod macros;
 
 // Core ECS types adapted for Soroban
+pub mod accounts;
 pub mod component;
 pub mod components;
 pub mod entity;
 pub mod error;
 pub mod event;
+pub mod hooks;
 pub mod query;
 pub mod resource;
+pub mod scheduler;
 pub mod simple_world;
 pub mod storage;
 pub mod system;
 pub mod systems;
 pub mod world;
+pub mod zk;
 
 // Re-export core types
 pub use component::{Component, ComponentId, ComponentStorage, ComponentTrait};
@@ -33,8 +37,10 @@ pub use components::Position;
 pub use entity::{Entity, EntityId};
 pub use error::{CougrError, CougrResult};
 pub use event::{Event, EventReader, EventWriter};
-pub use query::{Query, QueryState};
+pub use hooks::{HookRegistry, HookedWorld};
+pub use query::{Query, QueryState, SimpleQueryCache};
 pub use resource::Resource;
+pub use scheduler::{SimpleScheduler, SystemScheduler};
 pub use simple_world::SimpleWorld;
 pub use storage::{SparseStorage, Storage, TableStorage};
 pub use system::{IntoSystem, System, SystemParam};
