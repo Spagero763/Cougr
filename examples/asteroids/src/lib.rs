@@ -1,6 +1,5 @@
 #![no_std]
 
-use cougr_core::*;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, panic_with_error, symbol_short, Env, Vec,
 };
@@ -29,46 +28,75 @@ pub enum GameError {
     InvalidAction = 4,
 }
 
-// We keep the on-chain state as Soroban-friendly structs to minimize storage reads/writes.
-// Cougr-Core provides the ECS building blocks for richer simulations; this example keeps
-// storage minimal while still importing and exercising Cougr-Core utilities.
+// ECS Components following Cougr-Core patterns
+
 #[contracttype]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Vec2 {
+#[derive(Clone, Debug)]
+pub struct ShipComponent {
     pub x: i128,
     pub y: i128,
+    pub vx: i128,
+    pub vy: i128,
+    pub angle: u32,
 }
 
-#[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Ship {
-    pub position: Vec2,
-    pub velocity: Vec2,
-    pub rotation: u32,
-}
+cougr_core::impl_component!(ShipComponent, "ship", Table, { x: i128, y: i128, vx: i128, vy: i128, angle: u32 });
 
 #[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Asteroid {
-    pub position: Vec2,
-    pub velocity: Vec2,
+#[derive(Clone, Debug)]
+pub struct AsteroidComponent {
+    pub x: i128,
+    pub y: i128,
+    pub vx: i128,
+    pub vy: i128,
     pub size: u32,
 }
 
+cougr_core::impl_component!(AsteroidComponent, "asteroid", Table, { x: i128, y: i128, vx: i128, vy: i128, size: u32 });
+
 #[contracttype]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Bullet {
-    pub position: Vec2,
-    pub velocity: Vec2,
-    pub ttl: u32,
+#[derive(Clone, Debug)]
+pub struct BulletComponent {
+    pub x: i128,
+    pub y: i128,
+    pub vx: i128,
+    pub vy: i128,
+    pub lifetime: u32,
 }
 
+cougr_core::impl_component!(BulletComponent, "bullet", Table, { x: i128, y: i128, vx: i128, vy: i128, lifetime: u32 });
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ScoreComponent {
+    pub points: u32,
+    pub lives: u32,
+}
+
+cougr_core::impl_component!(ScoreComponent, "score", Table, { points: u32, lives: u32 });
+
+// ECS World State
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ECSWorldState {
+    pub ship: ShipComponent,
+    pub asteroids: Vec<AsteroidComponent>,
+    pub bullets: Vec<BulletComponent>,
+    pub score: ScoreComponent,
+    pub game_over: bool,
+}
+
+// External API state
 #[contracttype]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GameState {
-    pub ship: Ship,
-    pub asteroids: Vec<Asteroid>,
-    pub bullets: Vec<Bullet>,
+    pub ship_x: i128,
+    pub ship_y: i128,
+    pub ship_vx: i128,
+    pub ship_vy: i128,
+    pub ship_angle: u32,
+    pub asteroid_count: u32,
+    pub bullet_count: u32,
     pub score: u32,
     pub lives: u32,
     pub game_over: bool,
@@ -78,15 +106,15 @@ fn state_key() -> soroban_sdk::Symbol {
     symbol_short!("state")
 }
 
-fn load_state(env: &Env) -> GameState {
+fn load_world(env: &Env) -> ECSWorldState {
     env.storage()
         .instance()
         .get(&state_key())
         .unwrap_or_else(|| panic_with_error!(env, GameError::NotInitialized))
 }
 
-fn save_state(env: &Env, state: &GameState) {
-    env.storage().instance().set(&state_key(), state);
+fn save_world(env: &Env, world: &ECSWorldState) {
+    env.storage().instance().set(&state_key(), world);
 }
 
 fn heading_vector(index: u32) -> (i128, i128) {
@@ -112,134 +140,179 @@ fn wrap(mut value: i128, max: i128) -> i128 {
     value
 }
 
-fn dist2(a: Vec2, b: Vec2) -> i128 {
-    let dx = a.x - b.x;
-    let dy = a.y - b.y;
+fn dist2(x1: i128, y1: i128, x2: i128, y2: i128) -> i128 {
+    let dx = x1 - x2;
+    let dy = y1 - y2;
     dx * dx + dy * dy
 }
 
-fn reset_ship() -> Ship {
-    Ship {
-        position: Vec2 {
-            x: WORLD_W / 2,
-            y: WORLD_H / 2,
-        },
-        velocity: Vec2 { x: 0, y: 0 },
-        rotation: 0,
+// ECS Systems
+
+struct MovementSystem;
+impl MovementSystem {
+    fn update_ship(ship: &mut ShipComponent) {
+        ship.x = wrap(ship.x + ship.vx, WORLD_W);
+        ship.y = wrap(ship.y + ship.vy, WORLD_H);
+    }
+
+    fn update_bullet(bullet: &mut BulletComponent) {
+        bullet.x = wrap(bullet.x + bullet.vx, WORLD_W);
+        bullet.y = wrap(bullet.y + bullet.vy, WORLD_H);
+    }
+
+    fn update_asteroid(asteroid: &mut AsteroidComponent) {
+        asteroid.x = wrap(asteroid.x + asteroid.vx, WORLD_W);
+        asteroid.y = wrap(asteroid.y + asteroid.vy, WORLD_H);
+    }
+}
+
+struct CollisionSystem;
+impl CollisionSystem {
+    fn check_bullet_asteroid(bullet: &BulletComponent, asteroid: &AsteroidComponent) -> bool {
+        let radius = ASTEROID_BASE_RADIUS * asteroid.size as i128;
+        dist2(bullet.x, bullet.y, asteroid.x, asteroid.y) <= radius * radius
+    }
+
+    fn check_ship_asteroid(ship: &ShipComponent, asteroid: &AsteroidComponent) -> bool {
+        let radius = ASTEROID_BASE_RADIUS * asteroid.size as i128 + SHIP_RADIUS;
+        dist2(ship.x, ship.y, asteroid.x, asteroid.y) <= radius * radius
+    }
+}
+
+struct ShootingSystem;
+impl ShootingSystem {
+    fn spawn_bullet(ship: &ShipComponent) -> BulletComponent {
+        let (dx, dy) = heading_vector(ship.angle);
+        BulletComponent {
+            x: ship.x,
+            y: ship.y,
+            vx: ship.vx + dx * BULLET_SPEED / SCALE,
+            vy: ship.vy + dy * BULLET_SPEED / SCALE,
+            lifetime: BULLET_TTL,
+        }
+    }
+}
+
+struct AsteroidSplitSystem;
+impl AsteroidSplitSystem {
+    fn split(asteroid: &AsteroidComponent, env: &Env) -> Vec<AsteroidComponent> {
+        let mut result = Vec::new(env);
+        if asteroid.size > 1 {
+            let new_size = asteroid.size - 1;
+            result.push_back(AsteroidComponent {
+                x: asteroid.x,
+                y: asteroid.y,
+                vx: asteroid.vy,
+                vy: -asteroid.vx,
+                size: new_size,
+            });
+            result.push_back(AsteroidComponent {
+                x: asteroid.x,
+                y: asteroid.y,
+                vx: -asteroid.vy,
+                vy: asteroid.vx,
+                size: new_size,
+            });
+        }
+        result
     }
 }
 
 #[contractimpl]
 impl Contract {
-    // This small function verifies the Cougr-Core dependency is wired up correctly.
-    // Cougr-Core's ECS lets you express game logic as reusable systems over components,
-    // rather than hand-rolling per-entity loops directly against Soroban storage.
-    // Here we keep storage minimal but still show Cougr-Core systems in action.
-    pub fn cougr_smoke(env: Env) -> u32 {
-        let mut world = create_world();
-        let components = Vec::new(&env);
-        let _entity_id = spawn_entity(&mut world, components);
-        let position = Position { x: 500, y: 500 };
-        let _next = MovementSystem::update(&position, 10, -5);
-        world.entity_count() as u32
-    }
-
     pub fn init_game(env: Env) {
         if env.storage().instance().has(&state_key()) {
             panic_with_error!(&env, GameError::AlreadyInitialized);
         }
 
         let mut asteroids = Vec::new(&env);
-        asteroids.push_back(Asteroid {
-            position: Vec2 {
-                x: 200 * SCALE,
-                y: 800 * SCALE,
-            },
-            velocity: Vec2 { x: 40, y: -30 },
+        asteroids.push_back(AsteroidComponent {
+            x: 200 * SCALE,
+            y: 800 * SCALE,
+            vx: 40,
+            vy: -30,
             size: 3,
         });
-        asteroids.push_back(Asteroid {
-            position: Vec2 {
-                x: 800 * SCALE,
-                y: 200 * SCALE,
-            },
-            velocity: Vec2 { x: -25, y: 35 },
+        asteroids.push_back(AsteroidComponent {
+            x: 800 * SCALE,
+            y: 200 * SCALE,
+            vx: -25,
+            vy: 35,
             size: 2,
         });
 
-        let state = GameState {
-            ship: reset_ship(),
+        let world = ECSWorldState {
+            ship: ShipComponent {
+                x: WORLD_W / 2,
+                y: WORLD_H / 2,
+                vx: 0,
+                vy: 0,
+                angle: 0,
+            },
             asteroids,
             bullets: Vec::new(&env),
-            score: 0,
-            lives: 3,
+            score: ScoreComponent {
+                points: 0,
+                lives: 3,
+            },
             game_over: false,
         };
-        save_state(&env, &state);
+        save_world(&env, &world);
     }
 
     pub fn thrust_ship(env: Env) {
-        let mut state = load_state(&env);
-        if state.game_over {
+        let mut world = load_world(&env);
+        if world.game_over {
             panic_with_error!(&env, GameError::GameOver);
         }
 
-        let (dx, dy) = heading_vector(state.ship.rotation);
-        state.ship.velocity.x += dx * SHIP_THRUST / SCALE;
-        state.ship.velocity.y += dy * SHIP_THRUST / SCALE;
-        save_state(&env, &state);
+        let (dx, dy) = heading_vector(world.ship.angle);
+        world.ship.vx += dx * SHIP_THRUST / SCALE;
+        world.ship.vy += dy * SHIP_THRUST / SCALE;
+        save_world(&env, &world);
     }
 
     pub fn rotate_ship(env: Env, delta_steps: i32) {
-        let mut state = load_state(&env);
-        if state.game_over {
+        let mut world = load_world(&env);
+        if world.game_over {
             panic_with_error!(&env, GameError::GameOver);
         }
 
-        let rot = state.ship.rotation as i32;
-        state.ship.rotation = (rot + delta_steps).rem_euclid(DIRECTIONS as i32) as u32;
-        save_state(&env, &state);
+        let rot = world.ship.angle as i32;
+        world.ship.angle = (rot + delta_steps).rem_euclid(DIRECTIONS as i32) as u32;
+        save_world(&env, &world);
     }
 
     pub fn shoot(env: Env) {
-        let mut state = load_state(&env);
-        if state.game_over {
+        let mut world = load_world(&env);
+        if world.game_over {
             panic_with_error!(&env, GameError::GameOver);
         }
-        if state.bullets.len() >= MAX_BULLETS {
+        if world.bullets.len() >= MAX_BULLETS {
             panic_with_error!(&env, GameError::InvalidAction);
         }
 
-        let (dx, dy) = heading_vector(state.ship.rotation);
-        let bullet = Bullet {
-            position: state.ship.position,
-            velocity: Vec2 {
-                x: state.ship.velocity.x + dx * BULLET_SPEED / SCALE,
-                y: state.ship.velocity.y + dy * BULLET_SPEED / SCALE,
-            },
-            ttl: BULLET_TTL,
-        };
-        state.bullets.push_back(bullet);
-        save_state(&env, &state);
+        let bullet = ShootingSystem::spawn_bullet(&world.ship);
+        world.bullets.push_back(bullet);
+        save_world(&env, &world);
     }
 
     pub fn update_tick(env: Env) {
-        let mut state = load_state(&env);
-        if state.game_over {
+        let mut world = load_world(&env);
+        if world.game_over {
             panic_with_error!(&env, GameError::GameOver);
         }
 
-        state.ship.position.x = wrap(state.ship.position.x + state.ship.velocity.x, WORLD_W);
-        state.ship.position.y = wrap(state.ship.position.y + state.ship.velocity.y, WORLD_H);
+        // MovementSystem
+        MovementSystem::update_ship(&mut world.ship);
 
         let mut bullets = Vec::new(&env);
         let mut i = 0;
-        while i < state.bullets.len() {
-            let mut bullet = state.bullets.get(i).unwrap();
-            if bullet.ttl > 0 {
-                bullet.ttl -= 1;
-                bullet.position.x = wrap(bullet.position.x + bullet.velocity.x, WORLD_W);
-                bullet.position.y = wrap(bullet.position.y + bullet.velocity.y, WORLD_H);
+        while i < world.bullets.len() {
+            let mut bullet = world.bullets.get(i).unwrap();
+            bullet.lifetime = bullet.lifetime.saturating_sub(1);
+            if bullet.lifetime > 0 {
+                MovementSystem::update_bullet(&mut bullet);
                 bullets.push_back(bullet);
             }
             i += 1;
@@ -247,14 +320,14 @@ impl Contract {
 
         let mut asteroids = Vec::new(&env);
         let mut j = 0;
-        while j < state.asteroids.len() {
-            let mut asteroid = state.asteroids.get(j).unwrap();
-            asteroid.position.x = wrap(asteroid.position.x + asteroid.velocity.x, WORLD_W);
-            asteroid.position.y = wrap(asteroid.position.y + asteroid.velocity.y, WORLD_H);
+        while j < world.asteroids.len() {
+            let mut asteroid = world.asteroids.get(j).unwrap();
+            MovementSystem::update_asteroid(&mut asteroid);
             asteroids.push_back(asteroid);
             j += 1;
         }
 
+        // CollisionSystem - bullet-asteroid
         let mut asteroid_hit = Vec::new(&env);
         let mut k = 0;
         while k < asteroids.len() {
@@ -271,11 +344,10 @@ impl Contract {
             while a < asteroids.len() {
                 if !asteroid_hit.get(a).unwrap() {
                     let asteroid = asteroids.get(a).unwrap();
-                    let radius = ASTEROID_BASE_RADIUS * asteroid.size as i128;
-                    if dist2(bullet.position, asteroid.position) <= radius * radius {
+                    if CollisionSystem::check_bullet_asteroid(&bullet, &asteroid) {
                         asteroid_hit.set(a, true);
                         hit = true;
-                        state.score += 10;
+                        world.score.points += 10;
                         break;
                     }
                 }
@@ -287,29 +359,19 @@ impl Contract {
             b += 1;
         }
 
+        // AsteroidSplitSystem
         let mut remaining_asteroids = Vec::new(&env);
         let mut a = 0;
         while a < asteroids.len() {
             let asteroid = asteroids.get(a).unwrap();
             if asteroid_hit.get(a).unwrap() {
-                if asteroid.size > 1 && remaining_asteroids.len() + 2 <= MAX_ASTEROIDS {
-                    let new_size = asteroid.size - 1;
-                    remaining_asteroids.push_back(Asteroid {
-                        position: asteroid.position,
-                        velocity: Vec2 {
-                            x: asteroid.velocity.y,
-                            y: -asteroid.velocity.x,
-                        },
-                        size: new_size,
-                    });
-                    remaining_asteroids.push_back(Asteroid {
-                        position: asteroid.position,
-                        velocity: Vec2 {
-                            x: -asteroid.velocity.y,
-                            y: asteroid.velocity.x,
-                        },
-                        size: new_size,
-                    });
+                let splits = AsteroidSplitSystem::split(&asteroid, &env);
+                if remaining_asteroids.len() + splits.len() <= MAX_ASTEROIDS {
+                    let mut s = 0;
+                    while s < splits.len() {
+                        remaining_asteroids.push_back(splits.get(s).unwrap());
+                        s += 1;
+                    }
                 }
             } else {
                 remaining_asteroids.push_back(asteroid);
@@ -317,12 +379,12 @@ impl Contract {
             a += 1;
         }
 
+        // CollisionSystem - ship-asteroid
         let mut collided = false;
         let mut c = 0;
         while c < remaining_asteroids.len() {
             let asteroid = remaining_asteroids.get(c).unwrap();
-            let radius = ASTEROID_BASE_RADIUS * asteroid.size as i128 + SHIP_RADIUS;
-            if dist2(state.ship.position, asteroid.position) <= radius * radius {
+            if CollisionSystem::check_ship_asteroid(&world.ship, &asteroid) {
                 collided = true;
                 break;
             }
@@ -330,33 +392,55 @@ impl Contract {
         }
 
         if collided {
-            if state.lives > 0 {
-                state.lives -= 1;
+            if world.score.lives > 0 {
+                world.score.lives -= 1;
             }
-            state.ship = reset_ship();
+            world.ship = ShipComponent {
+                x: WORLD_W / 2,
+                y: WORLD_H / 2,
+                vx: 0,
+                vy: 0,
+                angle: 0,
+            };
             remaining_bullets = Vec::new(&env);
-            if state.lives == 0 {
-                state.game_over = true;
+            if world.score.lives == 0 {
+                world.game_over = true;
             }
         }
 
         if remaining_asteroids.is_empty() {
-            state.game_over = true;
+            world.game_over = true;
         }
 
-        state.asteroids = remaining_asteroids;
-        state.bullets = remaining_bullets;
-        save_state(&env, &state);
+        world.asteroids = remaining_asteroids;
+        world.bullets = remaining_bullets;
+        save_world(&env, &world);
     }
 
     pub fn get_score(env: Env) -> u32 {
-        let state = load_state(&env);
-        state.score
+        let world = load_world(&env);
+        world.score.points
     }
 
     pub fn check_game_over(env: Env) -> bool {
-        let state = load_state(&env);
-        state.game_over
+        let world = load_world(&env);
+        world.game_over
+    }
+
+    pub fn get_game_state(env: Env) -> GameState {
+        let world = load_world(&env);
+        GameState {
+            ship_x: world.ship.x,
+            ship_y: world.ship.y,
+            ship_vx: world.ship.vx,
+            ship_vy: world.ship.vy,
+            ship_angle: world.ship.angle,
+            asteroid_count: world.asteroids.len(),
+            bullet_count: world.bullets.len(),
+            score: world.score.points,
+            lives: world.score.lives,
+            game_over: world.game_over,
+        }
     }
 }
 
