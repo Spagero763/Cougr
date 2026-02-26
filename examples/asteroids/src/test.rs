@@ -1,39 +1,37 @@
 #![cfg(test)]
 
 use super::*;
+use cougr_core::component::ComponentTrait;
 use soroban_sdk::Env;
 
-fn get_state(env: &Env, contract_id: &soroban_sdk::Address) -> GameState {
+fn get_world(env: &Env, contract_id: &soroban_sdk::Address) -> ECSWorldState {
     env.as_contract(contract_id, || {
         env.storage()
             .instance()
             .get(&state_key())
-            .expect("state missing")
+            .expect("world missing")
     })
 }
 
-fn set_state(env: &Env, contract_id: &soroban_sdk::Address, state: &GameState) {
+fn set_world(env: &Env, contract_id: &soroban_sdk::Address, world: &ECSWorldState) {
     env.as_contract(contract_id, || {
-        env.storage().instance().set(&state_key(), state);
+        env.storage().instance().set(&state_key(), world);
     });
 }
 
 #[test]
-fn test_smoke_and_init() {
+fn test_init() {
     let env = Env::default();
     let contract_id = env.register(Contract, ());
     let client = ContractClient::new(&env, &contract_id);
 
-    let count = client.cougr_smoke();
-    assert_eq!(count, 1);
-
     client.init_game();
-    let state = get_state(&env, &contract_id);
-    assert_eq!(state.score, 0);
-    assert_eq!(state.lives, 3);
-    assert_eq!(state.asteroids.len(), 2);
-    assert_eq!(state.bullets.len(), 0);
-    assert!(!state.game_over);
+    let world = get_world(&env, &contract_id);
+    assert_eq!(world.score.points, 0);
+    assert_eq!(world.score.lives, 3);
+    assert_eq!(world.asteroids.len(), 2);
+    assert_eq!(world.bullets.len(), 0);
+    assert!(!world.game_over);
 }
 
 #[test]
@@ -57,8 +55,8 @@ fn test_rotation_wraps() {
 
     client.init_game();
     client.rotate_ship(&-1);
-    let state = get_state(&env, &contract_id);
-    assert_eq!(state.ship.rotation, DIRECTIONS - 1);
+    let world = get_world(&env, &contract_id);
+    assert_eq!(world.ship.angle, DIRECTIONS - 1);
 }
 
 #[test]
@@ -68,10 +66,10 @@ fn test_thrust_changes_velocity() {
     let client = ContractClient::new(&env, &contract_id);
 
     client.init_game();
-    let before = get_state(&env, &contract_id).ship.velocity;
+    let before = get_world(&env, &contract_id).ship;
     client.thrust_ship();
-    let after = get_state(&env, &contract_id).ship.velocity;
-    assert!(before.x != after.x || before.y != after.y);
+    let after = get_world(&env, &contract_id).ship;
+    assert!(before.vx != after.vx || before.vy != after.vy);
 }
 
 #[test]
@@ -82,8 +80,8 @@ fn test_shoot_adds_bullet() {
 
     client.init_game();
     client.shoot();
-    let state = get_state(&env, &contract_id);
-    assert_eq!(state.bullets.len(), 1);
+    let world = get_world(&env, &contract_id);
+    assert_eq!(world.bullets.len(), 1);
 }
 
 #[test]
@@ -93,31 +91,32 @@ fn test_asteroid_split_and_score() {
     let client = ContractClient::new(&env, &contract_id);
 
     client.init_game();
-    let mut state = get_state(&env, &contract_id);
-    let asteroid = Asteroid {
-        position: Vec2 {
-            x: 100 * SCALE,
-            y: 100 * SCALE,
-        },
-        velocity: Vec2 { x: 0, y: 0 },
+    let mut world = get_world(&env, &contract_id);
+    let asteroid = AsteroidComponent {
+        x: 100 * SCALE,
+        y: 100 * SCALE,
+        vx: 0,
+        vy: 0,
         size: 2,
     };
-    state.asteroids = Vec::new(&env);
-    state.asteroids.push_back(asteroid.clone());
-    state.bullets = Vec::new(&env);
-    state.bullets.push_back(Bullet {
-        position: asteroid.position,
-        velocity: Vec2 { x: 0, y: 0 },
-        ttl: BULLET_TTL,
+    world.asteroids = Vec::new(&env);
+    world.asteroids.push_back(asteroid.clone());
+    world.bullets = Vec::new(&env);
+    world.bullets.push_back(BulletComponent {
+        x: asteroid.x,
+        y: asteroid.y,
+        vx: 0,
+        vy: 0,
+        lifetime: BULLET_TTL,
     });
-    set_state(&env, &contract_id, &state);
+    set_world(&env, &contract_id, &world);
 
     client.update_tick();
-    let state = get_state(&env, &contract_id);
-    assert_eq!(state.score, 10);
-    assert_eq!(state.asteroids.len(), 2);
-    assert_eq!(state.asteroids.get(0).unwrap().size, 1);
-    assert_eq!(state.asteroids.get(1).unwrap().size, 1);
+    let world = get_world(&env, &contract_id);
+    assert_eq!(world.score.points, 10);
+    assert_eq!(world.asteroids.len(), 2);
+    assert_eq!(world.asteroids.get(0).unwrap().size, 1);
+    assert_eq!(world.asteroids.get(1).unwrap().size, 1);
 }
 
 #[test]
@@ -127,19 +126,22 @@ fn test_collision_reduces_lives() {
     let client = ContractClient::new(&env, &contract_id);
 
     client.init_game();
-    let mut state = get_state(&env, &contract_id);
-    let ship_pos = state.ship.position;
-    state.asteroids = Vec::new(&env);
-    state.asteroids.push_back(Asteroid {
-        position: ship_pos,
-        velocity: Vec2 { x: 0, y: 0 },
+    let mut world = get_world(&env, &contract_id);
+    let ship_x = world.ship.x;
+    let ship_y = world.ship.y;
+    world.asteroids = Vec::new(&env);
+    world.asteroids.push_back(AsteroidComponent {
+        x: ship_x,
+        y: ship_y,
+        vx: 0,
+        vy: 0,
         size: 3,
     });
-    set_state(&env, &contract_id, &state);
+    set_world(&env, &contract_id, &world);
 
     client.update_tick();
-    let state = get_state(&env, &contract_id);
-    assert_eq!(state.lives, 2);
+    let world = get_world(&env, &contract_id);
+    assert_eq!(world.score.lives, 2);
 }
 
 #[test]
@@ -149,11 +151,69 @@ fn test_game_over_when_no_asteroids() {
     let client = ContractClient::new(&env, &contract_id);
 
     client.init_game();
-    let mut state = get_state(&env, &contract_id);
-    state.asteroids = Vec::new(&env);
-    set_state(&env, &contract_id, &state);
+    let mut world = get_world(&env, &contract_id);
+    world.asteroids = Vec::new(&env);
+    set_world(&env, &contract_id, &world);
 
     client.update_tick();
-    let state = get_state(&env, &contract_id);
-    assert!(state.game_over);
+    let world = get_world(&env, &contract_id);
+    assert!(world.game_over);
+}
+
+#[test]
+fn test_bullet_lifetime_cleanup() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    client.init_game();
+    let mut world = get_world(&env, &contract_id);
+    world.bullets = Vec::new(&env);
+    world.bullets.push_back(BulletComponent {
+        x: 100 * SCALE,
+        y: 100 * SCALE,
+        vx: 0,
+        vy: 0,
+        lifetime: 1,
+    });
+    set_world(&env, &contract_id, &world);
+
+    client.update_tick();
+    let world = get_world(&env, &contract_id);
+    assert_eq!(world.bullets.len(), 0);
+}
+
+#[test]
+fn test_component_serialization() {
+    let env = Env::default();
+
+    let ship = ShipComponent {
+        x: 100,
+        y: 200,
+        vx: 10,
+        vy: 20,
+        angle: 3,
+    };
+    let data = ship.serialize(&env);
+    let deserialized = ShipComponent::deserialize(&env, &data).unwrap();
+    assert_eq!(ship.x, deserialized.x);
+    assert_eq!(ship.y, deserialized.y);
+    assert_eq!(ship.vx, deserialized.vx);
+    assert_eq!(ship.vy, deserialized.vy);
+    assert_eq!(ship.angle, deserialized.angle);
+}
+
+#[test]
+fn test_get_game_state() {
+    let env = Env::default();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    client.init_game();
+    let state = client.get_game_state();
+    assert_eq!(state.score, 0);
+    assert_eq!(state.lives, 3);
+    assert_eq!(state.asteroid_count, 2);
+    assert_eq!(state.bullet_count, 0);
+    assert!(!state.game_over);
 }
