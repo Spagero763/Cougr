@@ -1,0 +1,39 @@
+name: Proof of Hunt Example
+
+on:
+  push:
+    paths:
+      - 'examples/proof_of_hunt/**'
+      - '.github/workflows/proof_of_hunt.yml'
+  pull_request:
+    paths:
+      - 'examples/proof_of_hunt/**'
+      - '.github/workflows/proof_of_hunt.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: wasm32-unknown-unknown
+          override: true
+      - name: Install Soroban CLI
+        run: cargo install --locked soroban-cli || true
+      - name: Install stellar-zk
+        run: cargo install --locked stellar-zk || true
+      - name: Format
+        run: cargo fmt --check
+        working-directory: examples/proof_of_hunt
+      - name: Lint
+        run: cargo clippy --all-targets --all-features -- -D warnings
+        working-directory: examples/proof_of_hunt
+      - name: Test
+        run: cargo test
+        working-directory: examples/proof_of_hunt
+      - name: Build
+        run: soroban contract build
+        working-directory: examples/proof_of_hunt
